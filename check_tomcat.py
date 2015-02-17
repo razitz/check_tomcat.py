@@ -78,7 +78,7 @@ mode_help ='''Tomcat monitorizacion mode:
             This option check the status of java application running on tomcat server
 '''
 tree_xml=None
-tomcat_version=None
+tomcat_version=7
 
 #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -335,77 +335,28 @@ if args.verbosity:
 #MODE OPTIONS LOGIC
 #-------------------------------------------------------------------------
 
-#read serviceinfo
-url_serverinfo = args.URL+"/serverinfo"
-page_serverinfo,error_serverinfo = read_page(args.host,args.port,url_serverinfo,args.user,args.authentication)
-if args.verbosity>2:
-    print "serverinfo:"
-    print page_serverinfo
-
-# if error, try the manager/text/serverinfo, because in tomcat 7 change the path
-# of the manager app commands
-if(error_serverinfo):
-    url_serverinfo = args.URL+"/text/serverinfo"
-    page_serverinfo,error_serverinfo = read_page(args.host,args.port,url_serverinfo,args.user,args.authentication)
-# Now it is an error yes or yes
-if(error_serverinfo):
-    output = page_serverinfo
-    exit_status='UNKNOWN'
-if(error_serverinfo==False):
-    # read tomcat version in serverinfo
-    serverinfo = page_serverinfo.splitlines()
-    if args.verbosity>1:
-        print "Server info split: "
-        print serverinfo
-        print ""
-    tomcat_version_string = (serverinfo[1].split(":"))[1]
-    tomcat_status_string = serverinfo[0]
-    if args.verbosity>2:
-        print "tomcat_version_string: "+tomcat_version_string
-        print "tomcat_status_string: "+tomcat_status_string
-    #tomcat version is read in line 2 of serverinfo
-    #example:" Apache Tomcat/7.0.53", choose the "7"
-    tomcat_version = (tomcat_version_string.split("/"))[1].split(".")[0]
-    if args.verbosity:
-        print "tomcat_version: "+tomcat_version
-    #If i can't read the tomcat version because it is not a number
-    if (tomcat_version.isdigit()==False):
-        tomcat_version=0
-        if args.verbosity:
-            print "WARNING: I can't read the tomcat version"
-
 # status option
 #-----------------------------------------------------------------------------
 if args.mode == 'status':
     #Default state is CRITICAL
     exit_status='CRITICAL'
-    # If serverinfo page is correct
-    if (error_serverinfo!=True):
-        # check if the first line of serverinfo content "OK"
-        if (tomcat_status_string.find("OK")!=-1):
-            output = tomcat_version_string+" server is OK"
-            exit_status='OK'
-        else:
-            output="This server is not a tomcat server or "+url_serverinfo+" is not the manager app server info page"
-            exit_status='UNKNOWN'
-    # if serverinfo page is not correct try with th status xml page
-    else:
-        tree_xml,error_status_xml = read_page_status_XML(args.host,args.port,args.URL,args.user,args.authentication)
-        #check if page status xml is OK
-        if (error_status_xml!=True):
-            if (tree_xml!=None):
-                if tree_xml.tag=='status':    #The first tag of xml is "status"
-                    output="The Tomcat server is OK, but page serverinfo not work"
-                    exit_status='OK'
-                else:
-                    output="This server is not a tomcat server or not status xml page"
-                    exit_status='UNKNOWN'
+
+    tree_xml,error_status_xml = read_page_status_XML(args.host,args.port,args.URL,args.user,args.authentication)
+    #check if page status xml is OK
+    if (error_status_xml!=True):
+        if (tree_xml!=None):
+            if tree_xml.tag=='status':    #The first tag of xml is "status"
+                output="The Tomcat server is OK, but page serverinfo not work"
+                exit_status='OK'
             else:
-                output="I can't read either serviceinfo or serverstatus, this server not seems a Tomcat Server"
-                exit_status='CRITICAL'
+                output="This server is not a tomcat server or not status xml page"
+                exit_status='UNKNOWN'
         else:
-            output=tree_xml
+            output="I can't read either serviceinfo or serverstatus, this server not seems a Tomcat Server"
             exit_status='CRITICAL'
+    else:
+        output=tree_xml
+        exit_status='CRITICAL'
 
 
 # mem option
@@ -497,57 +448,52 @@ if args.mode == 'app':
         parser.print_usage()
         parser.exit(status['UNKNOWN'],
                             'ERROR: nameapp value requiered with mode "app"\n')
-    #If serverinfo is not read
-    if error_serverinfo:
-        output="I can't read the serverinfo page. "+page_serverinfo
-        exit_status='UNKNOWN'
-    #If serverinfo is read
-    else:
-        #for versions upper Tomcat 6
-        if (int(tomcat_version) > 6):
-            url_list = args.URL+"/text/list"
-        else:
-            url_list = args.URL+"/list"
 
-        #read application list page
-        page_list,error_list = read_page(args.host,args.port,url_list,args.user,args.authentication)
-        #If list page is not read
-        if error_list:
-            output="I can't read the list page of tomcat manager "+page_list
-            exit_status='UNKNOWN'
-        #If list page is read
-        else:
-            #Divide page_list in lines, each line is an application in the tomcat server
-            applist = page_list.splitlines()
-            if args.verbosity>1:
-                print "page_list split:"
-                print applist
-                print ""
-            #Applications in page list are like "/the_name_of_the_app"
-            matchapp = "/"+args.nameapp
-            match = False     #Flag
-            for application in applist:
-                application = application.split(":")
-                if matchapp == application[0]:
-                    match=True
-                    break
-            #If match app
-            if match:
-                if application[1]=="running":
-                    output = args.nameapp+" is running"
-                    exit_status="OK"
-                elif application[1]=="stopped":
-                    output = args.nameapp+" is stopped"
-                    exit_status="WARNING"
-                else:
-                    output = "I can't understand the state "+application[1]
-                    exit_status="WARNING"
-                #perfdata is the number of sessions for the application
-                perfdata="'sessions'="+application[2]
-            #If not match app
+    #for versions upper Tomcat 6
+    if (int(tomcat_version) > 6):
+        url_list = args.URL+"/text/list"
+    else:
+        url_list = args.URL+"/list"
+
+    #read application list page
+    page_list,error_list = read_page(args.host,args.port,url_list,args.user,args.authentication)
+    #If list page is not read
+    if error_list:
+        output="I can't read the list page of tomcat manager "+page_list
+        exit_status='UNKNOWN'
+    #If list page is read
+    else:
+        #Divide page_list in lines, each line is an application in the tomcat server
+        applist = page_list.splitlines()
+        if args.verbosity>1:
+            print "page_list split:"
+            print applist
+            print ""
+        #Applications in page list are like "/the_name_of_the_app"
+        matchapp = "/"+args.nameapp
+        match = False     #Flag
+        for application in applist:
+            application = application.split(":")
+            if matchapp == application[0]:
+                match=True
+                break
+        #If match app
+        if match:
+            if application[1]=="running":
+                output = args.nameapp+" is running"
+                exit_status="OK"
+            elif application[1]=="stopped":
+                output = args.nameapp+" is stopped"
+                exit_status="WARNING"
             else:
-                output = "I can't find the "+matchapp+" application in the tomcat server"
-                exit_status="CRITICAL"
+                output = "I can't understand the state "+application[1]
+                exit_status="WARNING"
+            #perfdata is the number of sessions for the application
+            perfdata="'sessions'="+application[2]
+        #If not match app
+        else:
+            output = "I can't find the "+matchapp+" application in the tomcat server"
+            exit_status="CRITICAL"
 
 #-----------------------------------------------------------------------------
 #-----------------------------------------------------------------------------
